@@ -1,11 +1,9 @@
 import pandas as pd
-import xlsxwriter
-
-RANGE = 'A:Z'  # this is an arbitrary range over which this script will format cells, and can be changed
+from typing import Any
 
 
-def calculate_bounds(series: pd.Series, upper_bound: float, lower_bound: float,
-                     include_zero: bool = False) -> tuple[float, float]:
+def _calculate_bounds(series: pd.Series, upper_bound: float, lower_bound: float,
+                      include_zero: bool = False) -> tuple[float, float]:
     """
     Returns a tuple of the form (X, Y) where  X is the value at the upper_bound
     percentile and Y is the value of the lower_bound percentile of the data.
@@ -34,7 +32,7 @@ def calculate_bounds(series: pd.Series, upper_bound: float, lower_bound: float,
 
     # adjusting user inputs for the series.quantile function
     upper_bound_quantile = 1.0 - (upper_bound / 100.0)
-    lower_bound_quantile = 1.0 - (lower_bound / 100.0)
+    lower_bound_quantile = lower_bound / 100.0
 
     # calculating X and Y using the series.quantile function
     x = sorted_series.quantile(upper_bound_quantile)
@@ -43,38 +41,16 @@ def calculate_bounds(series: pd.Series, upper_bound: float, lower_bound: float,
     return (x, y)
 
 
-pass
-
-
-def colorize_columns(workbook: xlsxwriter.Workbook, workbook_name: str, sheet_name: str, column_formatting: dict[str, str],
-                     margin_options: tuple[float], colour_options: tuple[str], include_zero_in_bounds: bool = False) -> None:
+def colorize_columns_in_sheet(workbook_writer: Any, sheet_name: str, sheet_data: pd.DataFrame, column_formatting: dict[str, str],
+                              margin_options: tuple[float], colour_options: tuple[str], include_zero_in_bounds: bool = False) -> None:
     """
     Applies the given column_formatting, colour_options, and margin_options to the
-    sheet with sheet_name in the given workbook.
-
-    EXAMPLE USAGE:
-    Assume there is a workbook called 'workbook_1' which contains a sheet named 'sheet_1'.
-
-    If the following inputs were given to the function:
-    - workbook_name = 'workbook_1'
-    - sheet_name = 'sheet_1'
-    - column_formatting = {'mean': 'colour_upper', 'missing': 'colour_lower'}
-    - margin_options = (5, 10)
-    - colour_options = ('green', 'red')
-    - include_zero_in_bounds = False
-
-    Then the following would happen:
-    - For the column in sheet_1 called 'mean', the upper 5 percent of the data
-      would be coloured green. Note that 0 was NOT taken into account when
-      calculating upper bound.
-    - For the column in sheet_1 called 'missing', the lower 10 percent of the
-      data would be coloured red. Note that 0 was NOT taken into account when
-      calculating lower bound.
+    sheet with sheet_name in the given workbook writer.
 
     Args:
-    - workbook: the xlsxwriter workbook to edit
-    - workbook_name: the name of the workbook to edit
+    - workbook_writer: the XlsxWriter to use to edit the workbook
     - sheet_name: the name of the sheet to search for the columns in
+    - sheet_name: a dataframe containing the data in the sheet with sheet_name
     - column_formatting: a dictionary of the form {column_name: format_option} where
       column_name is a valid column name in the given sheet and format_option is an
       item from the set { 'colour_both', 'colour_upper', 'colour_lower', 'colour_none'}
@@ -87,18 +63,34 @@ def colorize_columns(workbook: xlsxwriter.Workbook, workbook_name: str, sheet_na
       in a given column.
     - include_zero_in_bounds: whether or not to include 0 when calculating the upper or lower
       X% of a column. Default is False (does not include 0)
+
+    EXAMPLE USAGE:
+    Assume there is a workbook called 'workbook_1' which contains a sheet named 'sheet_1'.
+
+    If the following inputs were given to the function:
+    - sheet_name = 'sheet_1'
+    - sheet_data = <a dataframe containing the data in sheet_1>
+    - column_formatting = {'mean': 'colour_upper', 'missing': 'colour_lower'}
+    - margin_options = (5, 10)
+    - colour_options = ('green', 'red')
+    - include_zero_in_bounds = False
+
+    Then the following would happen:
+    - For the column in sheet_1 called 'mean', the upper 5 percent of the data
+      would be coloured green. Note that 0 was NOT taken into account when
+      calculating upper bound.
+    - For the column in sheet_1 called 'missing', the lower 10 percent of the
+      data would be coloured red. Note that 0 was NOT taken into account when
+      calculating lower bound.
     """
     # PART 1: calculate bounds for the needed columns
-
-    # reading the data and putting it in a dataframe so we can analyze it
-    data_df = pd.read_excel(workbook_name, sheet_name=sheet_name)
 
     # extracting margins
     upper_bound, lower_bound = margin_options
 
     # using the helper function to calculate bounds for each column
-    bounds = {column_name: calculate_bounds(
-        data_df[column_name]) for column_name in column_formatting}
+    bounds = {column_name: _calculate_bounds(
+        sheet_data[column_name], upper_bound, lower_bound) for column_name in column_formatting}
 
     # PART 2: applying conditional formatting based on the bounds and column
     # formatting
@@ -107,26 +99,36 @@ def colorize_columns(workbook: xlsxwriter.Workbook, workbook_name: str, sheet_na
     upper_colour, lower_colour = colour_options
 
     # creating reusable formats
-    upper_colour_format = workbook.add_format({'bg_color': upper_colour})
-    lower_colour_format = workbook.add_format({'bg_color': lower_colour})
+    upper_colour_format = workbook_writer.book.add_format(
+        {'bg_color': ('#FFC7CE' if upper_colour == 'red' else '#C6EFCE')})
+    lower_colour_format = workbook_writer.book.add_format(
+        {'bg_color': ('#FFC7CE' if lower_colour == 'red' else '#C6EFCE')})
 
-    worksheet = workbook.sheets[sheet_name]
+    worksheet = workbook_writer.sheets[sheet_name]
+    num_rows = sheet_data.shape[0]
 
-    # TODO: refactor, and should it be greater than EQUAL to the upper bound or strictly greater than? Same for lower.
-    for column_name, operation in column_formatting:
-        if operation == "colour_upper":
-            # format the upper X%
-            worksheet.conditional_format(RANGE, {
-                                         'type': 'cell', 'criteria': '>=', 'value': bounds[column_name][0], 'format': upper_colour_format})
-        elif operation == "colour_lower":
-            # format the lower Y%
-            worksheet.conditional_format(RANGE, {
-                                         'type': 'cell', 'criteria': '<=', 'value': bounds[column_name][1], 'format': lower_colour_format})
-        elif operation == "colour_both":
-            # format the upper X%
-            worksheet.conditional_format(RANGE, {
-                                         'type': 'cell', 'criteria': '>=', 'value': bounds[column_name][0], 'format': upper_colour_format})
+    # TODO: should it be EQUAL to the upper bound or strictly greater than? Same for lower.
 
-            # format the lower Y%
-            worksheet.conditional_format(RANGE, {
-                                         'type': 'cell', 'criteria': '<=', 'value': bounds[column_name][1], 'format': lower_colour_format})
+    for column_name, operation in column_formatting.items():
+        # which column are we in
+        column_pos = sheet_data.columns.get_loc(column_name)
+
+        # for each row in the column
+        for row_pos in range(1, num_rows):
+            current_data = sheet_data.iat[row_pos, column_pos]
+
+            # if zero shouldn't be included and this number is 0, ignore it
+            if not current_data or (not include_zero_in_bounds and current_data == 0):
+                continue
+
+            # if the upper bound must be coloured
+            if operation in {'colour_upper', 'colour_both'} and current_data >= bounds[column_name][0]:
+                # overwriting the cell with the original data and new formatting
+                worksheet.write(row_pos, column_pos,
+                                current_data, upper_colour_format)
+
+            # if the lower bound must be coloured
+            if operation in {'colour_lower', 'colour_both'} and current_data <= bounds[column_name][1]:
+                # overwriting the cell with the original data and new formatting
+                worksheet.write(row_pos, column_pos,
+                                current_data, lower_colour_format)
