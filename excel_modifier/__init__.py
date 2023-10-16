@@ -71,8 +71,8 @@ class ExcelModifier:
         return (x, y)
 
     def colorize_columns(self, column_formatting: dict[str, str],
-                         margin_options: tuple[float], colour_options:
-                         tuple[str]) -> None:
+                         margin_options: tuple[float, float], colour_options:
+                         tuple[str, str] = ('red', 'green'), ignore_bounds: int = 10) -> None:
         """
         Applies the given column_formatting, colour_options, and margin_options to the
         each sheet in self.sheets_to_modify with self.workbook_writer.
@@ -104,8 +104,7 @@ class ExcelModifier:
           would be coloured green.
         - For the column in sheet_1 called 'missing', the lower 10 percent of the
           data would be coloured red.
-          """
-
+        """
         # extracting margins
         upper_bound, lower_bound = margin_options
 
@@ -133,26 +132,54 @@ class ExcelModifier:
             worksheet = self.workbook_writer.sheets[sheet_name]
             num_rows = sheet_data.shape[0]
 
-            # TODO: EQUAL to or LESS THAN EQUAL TO based on if 10% majority
-
             for column_name, operation in column_formatting.items():
                 # which column are we in
                 column_pos = sheet_data.columns.get_loc(column_name)
+                current_column = sheet_data[column_name]
+
+                ignore_bound_percentage = ignore_bounds / 100
+
+                # find the largest item in the upper bound
+                largest_in_upper = current_column[current_column >= bounds[column_name][0]].max(
+                )
+                # this will contain whether or not the largest element in the
+                # upper bound appeas in more than ignore_boundsX% of this column
+                upper_bound_majority_exists = (
+                    current_column == largest_in_upper).mean() >= ignore_bound_percentage
+                # find the smallest item in the lower bound
+                smallest_in_lower = current_column[current_column <= bounds[column_name][1]].min(
+                )
+                # this will contain whether or not the smallest element in the
+                # lower bound appears in more than ignore_bounds% of this column
+                lower_bound_majority_exists = (
+                    current_column == smallest_in_lower).mean() >= ignore_bound_percentage
 
                 # for each row in the column
                 for row_pos in range(1, num_rows):
                     current_data = sheet_data.iat[row_pos - 1, column_pos]
 
-                    # if zero shouldn't be included and this number is 0, ignore it
                     if current_data != 'nan':
                         # if the upper bound must be coloured
-                        if operation in {'colour_upper', 'colour_both'} and current_data >= bounds[column_name][0]:
-                            # overwriting the cell with the original data and new formatting
-                            worksheet.write(row_pos, column_pos,
-                                            current_data, upper_colour_format)
+                        if operation in {'colour_upper', 'colour_both'}:
+                            if upper_bound_majority_exists:  # if this is true, we don't want to include the bound
+                                if current_data > bounds[column_name][0]:
+                                    # overwriting the cell with the original data and new formatting
+                                    worksheet.write(row_pos, column_pos,
+                                                    current_data, upper_colour_format)
+                            else:
+                                if current_data >= bounds[column_name][0]:
+                                    # overwriting the cell with the original data and new formatting
+                                    worksheet.write(row_pos, column_pos,
+                                                    current_data, upper_colour_format)
 
-                        # if the lower bound must be coloured
-                        if operation in {'colour_lower', 'colour_both'} and current_data <= bounds[column_name][1]:
-                            # overwriting the cell with the original data and new formatting
-                            worksheet.write(row_pos, column_pos,
-                                            current_data, lower_colour_format)
+                        if operation in {'colour_lower', 'colour_both'}:
+                            if lower_bound_majority_exists:  # if this is true, we don't want to include the bound
+                                if current_data < bounds[column_name][1]:
+                                    # overwriting the cell with the original data and new formatting
+                                    worksheet.write(row_pos, column_pos,
+                                                    current_data, lower_colour_format)
+                            else:
+                                if current_data <= bounds[column_name][1]:
+                                    # overwriting the cell with the original data and new formatting
+                                    worksheet.write(row_pos, column_pos,
+                                                    current_data, lower_colour_format)
