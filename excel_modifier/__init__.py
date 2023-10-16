@@ -34,8 +34,8 @@ class ExcelModifier:
         """
         self.sheets_to_modify = sheet_names
 
-    def _calculate_bounds(self, series: pd.Series, upper_bound: float, lower_bound: float,
-                          include_zero: bool = False) -> tuple[float, float]:
+    def _calculate_bounds(self, series: pd.Series, upper_bound: float,
+                          lower_bound: float) -> tuple[float, float]:
         """
         Returns a tuple of the form (X, Y) where  X is the value at the upper_bound
         percentile and Y is the value of the lower_bound percentile of the data.
@@ -55,8 +55,6 @@ class ExcelModifier:
         - lower_bound: the desired lower bound. For example, if this is 5.0, Y
           will be the largest number in the column such that the next largest
           number after Y is part of the bottom 5% of data in the column.
-        - include_zero_in_bounds: whether or not to include 0 when calculating the
-          upper or lower X% of a column. Default is False (does not include 0)
         """
         sorted_series = series.sort_values()
 
@@ -72,7 +70,7 @@ class ExcelModifier:
 
     def colorize_columns(self, column_formatting: dict[str, str],
                          margin_options: tuple[float, float], colour_options:
-                         tuple[str, str] = ('red', 'green'), ignore_bounds: int = 10) -> None:
+                         tuple[str, str] = ('green', 'red'), majority_percentage: int = 10) -> None:
         """
         Applies the given column_formatting, colour_options, and margin_options to the
         each sheet in self.sheets_to_modify with self.workbook_writer.
@@ -88,6 +86,11 @@ class ExcelModifier:
           from the set {'red', 'green'}. A is the colour to apply to the UPPER margin of
           the data in a given column. B is the colour to apply to the LOWER margin of the data
           in a given column.
+        - majority_percentage: an integer which signifies the percentage that a
+          specific data point must take up in a column to be considered a
+          "majority". If the smallest or largest element in a column takes
+          up at least majority_percentage% of the column, then it will not
+          be included in the bound.
 
         EXAMPLE USAGE:
         Assume this ExcelModifier has a workbook_writer that edits the file
@@ -98,12 +101,17 @@ class ExcelModifier:
         - column_formatting = {'mean': 'colour_upper', 'missing': 'colour_lower'}
         - margin_options = (5, 10)
         - colour_options = ('green', 'red')
+        - majority_percentage = 10
 
         Then the following would happen:
         - For the column in sheet_1 called 'mean', the upper 5 percent of the data
           would be coloured green.
+            - If the largest element takes up at least majority_percentage% of
+              the column, it will not be included in the colorization.
         - For the column in sheet_1 called 'missing', the lower 10 percent of the
           data would be coloured red.
+            - If the smallest element takes up at least majority_percentage% of
+              the column, it will not be included in the colorization.
         """
         # extracting margins
         upper_bound, lower_bound = margin_options
@@ -137,22 +145,23 @@ class ExcelModifier:
                 column_pos = sheet_data.columns.get_loc(column_name)
                 current_column = sheet_data[column_name]
 
-                ignore_bound_percentage = ignore_bounds / 100
+                # if the biggest and lowest data points are within this
+                # percentage, the bound will not be included in the
+                # colorization
+                ignore_bound_percentage = majority_percentage / 100
 
-                # find the largest item in the upper bound
-                largest_in_upper = current_column[current_column >= bounds[column_name][0]].max(
-                )
-                # this will contain whether or not the largest element in the
-                # upper bound appeas in more than ignore_boundsX% of this column
+                # find the largest item in the column
+                largest = current_column.max()
+                # this will contain whether or not the largest element appeas
+                # in more than majority_percentage% of this column
                 upper_bound_majority_exists = (
-                    current_column == largest_in_upper).mean() >= ignore_bound_percentage
-                # find the smallest item in the lower bound
-                smallest_in_lower = current_column[current_column <= bounds[column_name][1]].min(
-                )
-                # this will contain whether or not the smallest element in the
-                # lower bound appears in more than ignore_bounds% of this column
+                    current_column == largest).mean() >= ignore_bound_percentage
+                # find the smallest item in the column
+                smallest = current_column.min()
+                # this will contain whether or not the smallest element appears
+                # in more than majority_percentage% of this column
                 lower_bound_majority_exists = (
-                    current_column == smallest_in_lower).mean() >= ignore_bound_percentage
+                    current_column == smallest).mean() >= ignore_bound_percentage
 
                 # for each row in the column
                 for row_pos in range(1, num_rows):
