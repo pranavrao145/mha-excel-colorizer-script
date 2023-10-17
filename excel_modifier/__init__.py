@@ -318,3 +318,11 @@ class ExcelModifier:
                                     # overwriting the cell with the original data and new formatting
                                     worksheet.write(row_pos, column_pos,
                                                     current_data, lower_colour_format)
+
+    def autofit_sheets(self) -> None:
+        """
+        Autofits all sheets in self.set_sheets_to_modify.
+        """
+        for sheet_name in self.sheets_to_modify:
+            worksheet = self.workbook_writer.sheets[sheet_name]
+            worksheet.autofit()
