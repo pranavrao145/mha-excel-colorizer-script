@@ -68,9 +68,135 @@ class ExcelModifier:
 
         return (x, y)
 
-    def colorize_columns(self, column_formatting: dict[str, str],
-                         margin_options: tuple[float, float], colour_options:
-                         tuple[str, str] = ('green', 'red'), majority_percentage: int = 10) -> None:
+    def _parse_instructions(self, columns: list[str] | dict[str, str], instructions: dict) -> dict[str, str]:
+        """
+        Given an instruction string of the format described in the docstring of
+        self.colourize_columns, returned a dictionary of options to pass into
+        self._colourize_columns.
+        """
+        instruction_split = instructions.split()
+        POSSIBLE_INSTRUCTIONS = 'MmCcps'
+
+        params_to_pass = {}
+
+        # going through each element in the split instructions
+        for i in range(len(instruction_split)):
+            current_elem = instruction_split[i]
+            # first, if columns is already a dict, pre-emptively get ready to pass it
+            if isinstance(columns, dict):
+                params_to_pass['column_formatting'] = columns
+
+            # if this is indeed a new instruction
+            if current_elem in POSSIBLE_INSTRUCTIONS:
+                next_item = instruction_split[i + 1]
+                match current_elem:
+                    case 'M':
+                        params_to_pass['margin_upper'] = float(next_item)
+                    case 'm':
+                        params_to_pass['margin_lower'] = float(next_item)
+                    case 'C':
+                        params_to_pass['colour_upper'] = 'red' if next_item == 'r' else 'green'
+                    case 'c':
+                        params_to_pass['colour_lower'] = 'red' if next_item == 'r' else 'green'
+                    case 'p':
+                        params_to_pass['majority_percentage'] = float(
+                            next_item)
+                    case 's':
+                        if isinstance(columns, list):
+                            OPTION_EXPANSIONS = {'u': 'colour_upper', 'l':
+                                                 'colour_lower', 'b': 'colour_both'}
+                            current_option = OPTION_EXPANSIONS[next_item]
+                            params_to_pass['column_formatting'] = {column:
+                                                                   current_option
+                                                                   for column
+                                                                   in columns}
+        return params_to_pass
+
+    def colourize_columns(self, columns: list[str] | dict[str, str], instructions: dict) -> None:
+        """
+        Given a string of instructions (specification below), colorize columns
+        of all sheets in self.sheets_to_modify based on the instructions.
+
+        Args:
+        - columns: One of the following:
+            - a list of strings which signify the columns to which the
+              instructions passed to this function should be applied (for every
+              sheet in self.sheets_to_modify). If this is a list, then the
+              "s" argument from the instruction string will be used
+            - a dictionary of the form {column_name: format_option} where
+              column_name is a valid column name in the given sheet and
+              format_option is an item from the set { 'u', 'l', 'b' }. 'u'
+              stands for upper, meaning elements within the upper margin
+              will be colorized, and similarly for lower and both.
+
+              Note that, if this argument is a dict, then the "s" option from
+              the instruction string will be ignored.
+        - instructions: A string of instructions that specify how each column
+        should be modified. The specification for this instructions string is
+        found below:
+
+        Specification for Instructions String (note: order in which these options are specified
+        does not matter but all of them except 's' must be present in an instructions string):
+        - M is used to specify the upper margin percentage, which is the percentage
+        of the data in a column to consider as an UPPER margin. It is followed by
+        a space and an float to 0.0 to 100.0 (e.g. M 35.0).
+        - m is used to specify the upper margin percentage, which is the percentage
+        of the data in a column to consider as an LOWER margin. It is followed by
+        a space and an float from 0.0 to 100.0 (e.g. m 35.0).
+        - C is used to specify the upper margin colour, which is the colour that
+        any data within the upper margin will have. It is followed by a space
+        and one of {'r', 'g'} (e.g. C g).
+        - c is used to specify the lower margin colour, which is the colour that
+        any data within the lower margin will have. It is followed by a space
+        and one of {'r', 'g'} (e.g. c r).
+        - p is used to specify the majority percentage, which is the percentage
+        either the smallest or largest element in a column will have to take
+        up to be a "majority", which will exclude it from being colorized. It
+        is followed by a space and a float from 0.0 to 100.0 (e.g. p 10.0).
+        - s is used to specify the sections of the columns that must be colorized.
+        It is followed by a space and one of {'u', 'l', 'b'}. 'u' stands for upper,
+        meaning elements within the upper margin will be colorized, and similarly
+        for lower and both. Note that this argument will be ignored if the type
+        of columns is a dictionary.
+
+        EXAMPLE USAGE:
+        Here are 2 example calls:
+
+        1. colourize_columns(['mean', 'missing'], 'M 5.0 m 10.0 C g c r p 10.0 s b')
+
+        This will colourize the 'mean' and 'missing' columns in every sheet in
+        self.set_sheets_to_modify, considering the upper margin as 5% and colouring
+        it green, the lower margin as 10% and colouring it red, considering the "majority
+        percentage" as 10%, and colourizing both the upper and lower margins. Note that
+        even if integers are used in place of the floats, this function still works.
+
+        2. colourize_columns({'mean': 'u', 'missing': 'l'}, 'M 5.0 m 10.0 C g c r p 10.0')
+
+        This does the same thing as 1, except the 'mean' column only has the upper
+        margin colourized and the 'missing' column only has the lower margin
+        colourized.
+
+        For any further clarification on options, view the docstring of
+        self._colourize_columns.
+        """
+        # parse the instruction string
+        parsed_instructions = self._parse_instructions(columns, instructions)
+
+        # extract the parameters from the parsed instructions
+        column_formatting = parsed_instructions['column_formatting']
+        margin_options = (
+            parsed_instructions['margin_upper'], parsed_instructions['margin_lower'])
+        colour_options = (
+            parsed_instructions['colour_upper'], parsed_instructions['colour_lower'])
+        majority_percentage = parsed_instructions['majority_percentage']
+
+        # call the helper function
+        self._colourize_columns(column_formatting, margin_options,
+                                colour_options, majority_percentage)
+
+    def _colourize_columns(self, column_formatting: dict[str, str],
+                           margin_options: tuple[float, float], colour_options:
+                           tuple[str, str] = ('green', 'red'), majority_percentage: float = 10.0) -> None:
         """
         Applies the given column_formatting, colour_options, and margin_options to the
         each sheet in self.sheets_to_modify with self.workbook_writer.
@@ -78,19 +204,19 @@ class ExcelModifier:
         Args:
         - column_formatting: a dictionary of the form {column_name: format_option} where
           column_name is a valid column name in the given sheet and format_option is an
-          item from the set { 'colour_both', 'colour_upper', 'colour_lower', 'colour_none'}
-        - margin_options: a tuple of the form (X, Y) where X and Y are floats from 0.0 to 100.0 (inclusive).
-          X is the percent of the data to consider as the UPPER margin. Y is the percent of the data
-          to consider as the LOWER margin.
+          item from the set { 'colour_both', 'colour_upper', 'colour_lower' }
+        - margin_options: a tuple of the form (X, Y) where X and Y are floats from
+          0.0 to 100.0 (inclusive). X is the percent of the data to consider as the UPPER margin.
+          Y is the percent of the data to consider as the LOWER margin.
         - colour_options: a tuple of the form (A, B) where A and B are strings
           from the set {'red', 'green'}. A is the colour to apply to the UPPER margin of
           the data in a given column. B is the colour to apply to the LOWER margin of the data
           in a given column.
-        - majority_percentage: an integer which signifies the percentage that a
-          specific data point must take up in a column to be considered a
-          "majority". If the smallest or largest element in a column takes
-          up at least majority_percentage% of the column, then it will not
-          be included in the bound.
+        - majority_percentage: a float from 0.0 to 100.0 which signifies the
+          percentage that a specific data point must take up in a column to be
+          considered a "majority". If the smallest or largest element in a
+          column takes up at least majority_percentage% of the column, then it
+          will not be included in the bound.
 
         EXAMPLE USAGE:
         Assume this ExcelModifier has a workbook_writer that edits the file
@@ -145,9 +271,9 @@ class ExcelModifier:
                 column_pos = sheet_data.columns.get_loc(column_name)
                 current_column = sheet_data[column_name]
 
-                # if the biggest and lowest data points are within this
-                # percentage, the bound will not be included in the
-                # colorization
+                # if the biggest and lowest data points take up this much percentage
+                # of the upper and lower bounds, respectively, they will not be
+                # colorized
                 ignore_bound_percentage = majority_percentage / 100
 
                 # find the largest item in the column
@@ -170,25 +296,25 @@ class ExcelModifier:
                     if current_data != 'nan':
                         # if the upper bound must be coloured
                         if operation in {'colour_upper', 'colour_both'}:
-                            if upper_bound_majority_exists:  # if this is true, we don't want to include the bound
-                                if current_data > bounds[column_name][0]:
+                            if upper_bound_majority_exists:  # if this is true, we don't want to include the largest element
+                                if largest > current_data >= bounds[column_name][0]:
                                     # overwriting the cell with the original data and new formatting
                                     worksheet.write(row_pos, column_pos,
                                                     current_data, upper_colour_format)
                             else:
-                                if current_data >= bounds[column_name][0]:
+                                if largest >= current_data >= bounds[column_name][0]:
                                     # overwriting the cell with the original data and new formatting
                                     worksheet.write(row_pos, column_pos,
                                                     current_data, upper_colour_format)
 
                         if operation in {'colour_lower', 'colour_both'}:
-                            if lower_bound_majority_exists:  # if this is true, we don't want to include the bound
-                                if current_data < bounds[column_name][1]:
+                            if lower_bound_majority_exists:  # if this is true, we don't want to include the smallest element
+                                if smallest < current_data <= bounds[column_name][1]:
                                     # overwriting the cell with the original data and new formatting
                                     worksheet.write(row_pos, column_pos,
                                                     current_data, lower_colour_format)
                             else:
-                                if current_data <= bounds[column_name][1]:
+                                if smallest <= current_data <= bounds[column_name][1]:
                                     # overwriting the cell with the original data and new formatting
                                     worksheet.write(row_pos, column_pos,
                                                     current_data, lower_colour_format)
