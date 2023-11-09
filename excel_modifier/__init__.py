@@ -1,4 +1,5 @@
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 
 
 class ExcelModifier:
@@ -52,7 +53,7 @@ class ExcelModifier:
         """
         list_of_columns = sheet_data.columns.tolist()
         return [i for i in range(len(list_of_columns)) if list_of_columns[i] in
-                columns]
+                columns and is_numeric_dtype(sheet_data[list_of_columns[i]])]
 
     def _calculate_bounds(self, series: pd.Series, upper_bound: float,
                           lower_bound: float) -> tuple[float, float]:
