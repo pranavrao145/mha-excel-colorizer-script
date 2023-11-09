@@ -83,9 +83,6 @@ class ExcelModifier:
         # going through each element in the split instructions
         for i in range(len(instruction_split)):
             current_elem = instruction_split[i]
-            # first, if columns is already a dict, pre-emptively get ready to pass it
-            if isinstance(columns, dict):
-                params_to_pass['column_formatting'] = columns
 
             # if this is indeed a new instruction
             if current_elem in POSSIBLE_INSTRUCTIONS:
@@ -103,14 +100,14 @@ class ExcelModifier:
                         params_to_pass['majority_percentage'] = float(
                             next_item)
                     case 's':
-                        if isinstance(columns, list):
-                            OPTION_EXPANSIONS = {'u': 'colour_upper', 'l':
-                                                 'colour_lower', 'b': 'colour_both'}
-                            current_option = OPTION_EXPANSIONS[next_item]
-                            params_to_pass['column_formatting'] = {column:
-                                                                   current_option
-                                                                   for column
-                                                                   in columns}
+                        match next_item:
+                            case 'u':
+                                params_to_pass['formatting_option'] = 'colour_upper'
+                            case 'l':
+                                params_to_pass['formatting_option'] = 'colour_lower'
+                            case 'b':
+                                params_to_pass['formatting_option'] = 'colour_both'
+
         return params_to_pass
 
     def colourize_columns(self, columns: list[str] | dict[str, str], instructions: dict) -> None:
@@ -184,7 +181,7 @@ class ExcelModifier:
         parsed_instructions = self._parse_instructions(columns, instructions)
 
         # extract the parameters from the parsed instructions
-        column_formatting = parsed_instructions['column_formatting']
+        formatting_option = parsed_instructions['formatting_option']
         margin_options = (
             parsed_instructions['margin_upper'], parsed_instructions['margin_lower'])
         colour_options = (
@@ -192,10 +189,10 @@ class ExcelModifier:
         majority_percentage = parsed_instructions['majority_percentage']
 
         # call the helper function
-        self._colourize_columns(column_formatting, margin_options,
+        self._colourize_columns(columns, formatting_option, margin_options,
                                 colour_options, majority_percentage)
 
-    def _colourize_columns(self, column_formatting: dict[str, str],
+    def _colourize_columns(self, columns_to_format: list[str], formatting_option: str,
                            margin_options: tuple[float, float], colour_options:
                            tuple[str, str] = ('green', 'red'), majority_percentage: float = 10.0) -> None:
         """
@@ -203,9 +200,10 @@ class ExcelModifier:
         each sheet in self.sheets_to_modify with self.workbook_writer.
 
         Args:
-        - column_formatting: a dictionary of the form {column_name: format_option} where
-          column_name is a valid column name in the given sheet and format_option is an
-          item from the set { 'colour_both', 'colour_upper', 'colour_lower' }
+        - columns_to_format: a list containing the names of the columns in self.sheets_to_modify to format
+        - formatting_option: a string from the set { 'colour_both', 'colour_upper', 'colour_lower' }
+          which describes whether to colour only the upper margin, lower margin,
+          or both
         - margin_options: a tuple of the form (X, Y) where X and Y are floats from
           0.0 to 100.0 (inclusive). X is the percent of the data to consider as the UPPER margin.
           Y is the percent of the data to consider as the LOWER margin.
@@ -225,20 +223,18 @@ class ExcelModifier:
 
         If the following inputs were given to the function:
         - self.sheets_to_modify contained 'sheet_1' and the associated DataFrame
-        - column_formatting = {'mean': 'colour_upper', 'missing': 'colour_lower'}
+        - columns_to_format = ['mean', 'missing']
+        - formatting_option = 'colour_upper'
         - margin_options = (5, 10)
         - colour_options = ('green', 'red')
         - majority_percentage = 10
 
         Then the following would happen:
-        - For the column in sheet_1 called 'mean', the upper 5 percent of the data
-          would be coloured green.
-            - If the largest element takes up at least majority_percentage% of
-              the column, it will not be included in the colorization.
-        - For the column in sheet_1 called 'missing', the lower 10 percent of the
-          data would be coloured red.
-            - If the smallest element takes up at least majority_percentage% of
-              the column, it will not be included in the colorization.
+        - For the columns in sheet_1 called 'mean' and 'missing', the upper 5
+          percent of the data would be coloured green.
+            - If the largest element in each column takes up at least
+              majority_percentage% of the column, it will not be included in
+              the colorization.
         """
         # extracting margins
         upper_bound, lower_bound = margin_options
@@ -252,7 +248,7 @@ class ExcelModifier:
 
             # using the helper function to calculate bounds for each column
             bounds = {column_name: self._calculate_bounds(
-                sheet_data[column_name], upper_bound, lower_bound) for column_name in column_formatting}
+                sheet_data[column_name], upper_bound, lower_bound) for column_name in columns_to_format}
 
             # PART 2: applying conditional formatting based on the bounds and column
             # formatting
@@ -267,7 +263,7 @@ class ExcelModifier:
             worksheet = self.workbook_writer.sheets[sheet_name]
             num_rows = sheet_data.shape[0]
 
-            for column_name, operation in column_formatting.items():
+            for column_name in columns_to_format:
                 # which column are we in
                 column_pos = sheet_data.columns.get_loc(column_name)
                 current_column = sheet_data[column_name]
@@ -291,12 +287,12 @@ class ExcelModifier:
                     current_column == smallest).mean() >= ignore_bound_percentage
 
                 # for each row in the column
-                for row_pos in range(1, num_rows):
+                for row_pos in range(1, num_rows + 1):
                     current_data = sheet_data.iat[row_pos - 1, column_pos]
 
                     if current_data != 'nan':
                         # if the upper bound must be coloured
-                        if operation in {'colour_upper', 'colour_both'}:
+                        if formatting_option in {'colour_upper', 'colour_both'}:
                             if upper_bound_majority_exists:  # if this is true, we don't want to include the largest element
                                 if largest > current_data >= bounds[column_name][0]:
                                     # overwriting the cell with the original data and new formatting
@@ -308,7 +304,7 @@ class ExcelModifier:
                                     worksheet.write(row_pos, column_pos,
                                                     current_data, upper_colour_format)
 
-                        if operation in {'colour_lower', 'colour_both'}:
+                        if formatting_option in {'colour_lower', 'colour_both'}:
                             if lower_bound_majority_exists:  # if this is true, we don't want to include the smallest element
                                 if smallest < current_data <= bounds[column_name][1]:
                                     # overwriting the cell with the original data and new formatting
@@ -341,6 +337,12 @@ if __name__ == "__main__":
     })
 
     df.to_excel(writer, sheet_name='Sheet1',
-                startrow=3, startcol=1, index=False)
+                startrow=0, startcol=0, index=False)
 
-    writer.close()
+    modifier = ExcelModifier(writer)
+    modifier.set_sheets_to_modify({'Sheet1': df})
+
+    modifier.colourize_columns(['test1'], 'M 20 m 20 c r C g p 90 s b')
+    modifier.autofit_sheets()
+
+    modifier.close()
