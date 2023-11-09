@@ -423,34 +423,3 @@ class ExcelModifier:
         for sheet_name in self.sheets_to_modify:
             worksheet = self.workbook_writer.sheets[sheet_name]
             worksheet.autofit()
-
-
-if __name__ == "__main__":
-    writer = pd.ExcelWriter('test.xlsx')
-
-    data = {
-        ('A', 'a'): [1, 2, 3, 4],
-        ('A', 'b'): [1, 2, 3, 4],
-        ('B', 'a'): [1, 2, 3, 4],
-        ('B', 'b'): [1, 2, 3, 4],
-    }
-
-    columns = pd.MultiIndex.from_tuples(
-        [('A', 'a'), ('A', 'b'), ('B', 'a'), ('B', 'b')])
-    df = pd.DataFrame(data, columns=columns)
-    # print(df.columns.tolist())
-    # print(list(columns.get_level_values(1)))
-    # print(df.loc[:, ('A', 'a')].tolist())
-
-    df.to_excel(writer, sheet_name='Sheet1', engine='xlsxwriter')
-
-    modifier = ExcelModifier(writer)
-    modifier.set_sheets_to_modify({'Sheet1': df})
-
-    # modifier.colourize_columns(
-    #     [('A', 'a')], 'M 50 m 50 c r C g p 90 s b o 3 O 1', multi_index=True)
-    modifier.colourize_all(
-        'M 20 m 20 c r C g p 90 s b o 3 O 1', [('A', 'a')], multi_index=True)
-    # modifier.autofit_sheets()
-
-    modifier.close()
