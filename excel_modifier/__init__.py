@@ -68,7 +68,7 @@ class ExcelModifier:
 
         return (x, y)
 
-    def _parse_instructions(self, columns: list[str] | dict[str, str], instructions: dict) -> dict[str, str]:
+    def _parse_instructions(self, columns: list[str], instructions: str) -> dict[str, str]:
         """
         Given an instruction string of the format described in the docstring of
         self.colourize_columns, returned a dictionary of options to pass into
@@ -113,7 +113,13 @@ class ExcelModifier:
 
         return params_to_pass
 
-    def colourize_columns(self, columns: list[str] | dict[str, str], instructions: dict) -> None:
+    def colourize_all() -> None:
+        """
+        Applies the instructions string to every column in every sheet in
+        self.set_sheets_to_modify.
+        """
+
+    def colourize_columns(self, columns: list[str], instructions: str) -> None:
         """
         Given a string of instructions (specification below), colorize columns
         of all sheets in self.sheets_to_modify based on the instructions.
@@ -186,19 +192,26 @@ class ExcelModifier:
         write_offsets = (
             parsed_instructions['row_offset'], parsed_instructions['column_offset'])
 
-        # call the helper function
-        self._colourize_columns(columns, formatting_option, margin_options,
-                                colour_options, majority_percentage, write_offsets)
+        for sheet_name, sheet_data in self.sheets_to_modify.items():
+            # call the helper function
+            self._colourize_columns(sheet_name, sheet_data, columns,
+                                    formatting_option, margin_options,
+                                    colour_options, majority_percentage,
+                                    write_offsets)
 
-    def _colourize_columns(self, columns_to_format: list[str], formatting_option: str,
-                           margin_options: tuple[float, float], colour_options:
-                           tuple[str, str] = ('green', 'red'), majority_percentage: float = 10.0,
+    def _colourize_columns(self, sheet_name: str, sheet_data: pd.DataFrame,
+                           columns_to_format: list[str], formatting_option: str,
+                           margin_options: tuple[float, float],
+                           colour_options: tuple[str, str] = ('green', 'red'),
+                           majority_percentage: float = 10.0,
                            write_offsets: tuple[int, int] = (0, 0)) -> None:
         """
-        Applies the given column_formatting, colour_options, and margin_options to the
-        each sheet in self.sheets_to_modify with self.workbook_writer.
+        Applies all options to the columns in columns_to_format in the sheet
+        with the name sheet_name.
 
         Args:
+        - sheet_name: the name of the sheet where changes should be applied
+        - sheet_data: the pandas dataframe associated with the sheet sheet_name
         - columns_to_format: a list containing the names of the columns in self.sheets_to_modify to format
         - formatting_option: a string from the set { 'colour_both', 'colour_upper', 'colour_lower' }
           which describes whether to colour only the upper margin, lower margin,
@@ -222,11 +235,10 @@ class ExcelModifier:
           and column 0 and 0. Default value is (0, 0).
 
         EXAMPLE USAGE:
-        Assume this ExcelModifier has a workbook_writer that edits the file
-        'workbook_1.xlsx' which contains a sheet named 'sheet_1'.
 
         If the following inputs were given to the function:
-        - self.sheets_to_modify contained 'sheet_1' and the associated DataFrame
+        - sheet_name = 'Sheet1' (assuming Sheet1 exists in the workbook this ExcelModifier is modifying)
+        - sheet_data is the dataframe associated with Sheet1
         - columns_to_format = ['mean', 'missing']
         - formatting_option = 'colour_upper'
         - margin_options = (5, 10)
@@ -235,7 +247,7 @@ class ExcelModifier:
         - write_offsets = (1, 1)
 
         Then the following would happen:
-        - For the columns in sheet_1 called 'mean' and 'missing', the upper 5
+        - For the columns in Sheet1 called 'mean' and 'missing', the upper 5
           percent of the data would be coloured green.
             - If the largest element in each column takes up at least
               majority_percentage% of the column, it will not be included in
@@ -259,72 +271,70 @@ class ExcelModifier:
 
         row_offset, column_offset = write_offsets
 
-        # do it for each sheet specified
-        for sheet_name, sheet_data in self.sheets_to_modify.items():
-            # PART 1: calculate bounds for the needed columns
+        # PART 1: calculate bounds for the needed columns
 
-            # using the helper function to calculate bounds for each column
-            bounds = {column_name: self._calculate_bounds(
-                sheet_data[column_name], upper_bound, lower_bound) for column_name in columns_to_format}
+        # using the helper function to calculate bounds for each column
+        bounds = {column_name: self._calculate_bounds(
+            sheet_data[column_name], upper_bound, lower_bound) for column_name in columns_to_format}
 
-            # PART 2: applying conditional formatting based on the bounds and column
-            # formatting
+        # PART 2: applying conditional formatting based on the bounds and column
+        # formatting
 
-            worksheet = self.workbook_writer.sheets[sheet_name]
-            num_rows = sheet_data.shape[0]
+        worksheet = self.workbook_writer.sheets[sheet_name]
+        num_rows = sheet_data.shape[0]
 
-            for column_name in columns_to_format:
-                # which column are we in
-                column_pos = sheet_data.columns.get_loc(column_name)
-                current_column = sheet_data[column_name]
+        for column_name in columns_to_format:
+            # which column are we in
+            column_pos = sheet_data.columns.get_loc(column_name)
+            current_column = sheet_data[column_name]
 
-                # if the biggest and lowest data points take up this much percentage
-                # of the upper and lower bounds, respectively, they will not be
-                # colorized
-                ignore_bound_percentage = majority_percentage / 100
+            # if the biggest and lowest data points take up this much percentage
+            # of the upper and lower bounds, respectively, they will not be
+            # colorized
+            ignore_bound_percentage = majority_percentage / 100
 
-                # find the largest item in the column
-                largest = current_column.max()
-                # this will contain whether or not the largest element appeas
-                # in more than majority_percentage% of this column
-                upper_bound_majority_exists = (
-                    current_column == largest).mean() >= ignore_bound_percentage
-                # find the smallest item in the column
-                smallest = current_column.min()
-                # this will contain whether or not the smallest element appears
-                # in more than majority_percentage% of this column
-                lower_bound_majority_exists = (
-                    current_column == smallest).mean() >= ignore_bound_percentage
+            # find the largest item in the column
+            largest = current_column.max()
+            # this will contain whether or not the largest element appeas
+            # in more than majority_percentage% of this column
+            upper_bound_majority_exists = (
+                current_column == largest).mean() >= ignore_bound_percentage
+            # find the smallest item in the column
+            smallest = current_column.min()
+            # this will contain whether or not the smallest element appears
+            # in more than majority_percentage% of this column
+            lower_bound_majority_exists = (
+                current_column == smallest).mean() >= ignore_bound_percentage
 
-                # for each row in the column
-                for row_pos in range(row_offset, num_rows + 1):
-                    current_data = sheet_data.iat[row_pos - 1, column_pos]
+            # for each row in the column
+            for row_pos in range(row_offset, num_rows + 1):
+                current_data = sheet_data.iat[row_pos - 1, column_pos]
 
-                    if current_data != 'nan':
-                        # if the upper bound must be coloured
-                        if formatting_option in {'colour_upper', 'colour_both'}:
-                            if upper_bound_majority_exists:  # if this is true, we don't want to include the largest element
-                                if largest > current_data >= bounds[column_name][0]:
-                                    # overwriting the cell with the original data and new formatting
-                                    worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
-                                                    current_data, upper_colour_format)
-                            else:
-                                if largest >= current_data >= bounds[column_name][0]:
-                                    # overwriting the cell with the original data and new formatting
-                                    worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
-                                                    current_data, upper_colour_format)
+                if current_data != 'nan':
+                    # if the upper bound must be coloured
+                    if formatting_option in {'colour_upper', 'colour_both'}:
+                        if upper_bound_majority_exists:  # if this is true, we don't want to include the largest element
+                            if largest > current_data >= bounds[column_name][0]:
+                                # overwriting the cell with the original data and new formatting
+                                worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
+                                                current_data, upper_colour_format)
+                        else:
+                            if largest >= current_data >= bounds[column_name][0]:
+                                # overwriting the cell with the original data and new formatting
+                                worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
+                                                current_data, upper_colour_format)
 
-                        if formatting_option in {'colour_lower', 'colour_both'}:
-                            if lower_bound_majority_exists:  # if this is true, we don't want to include the smallest element
-                                if smallest < current_data <= bounds[column_name][1]:
-                                    # overwriting the cell with the original data and new formatting
-                                    worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
-                                                    current_data, lower_colour_format)
-                            else:
-                                if smallest <= current_data <= bounds[column_name][1]:
-                                    # overwriting the cell with the original data and new formatting
-                                    worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
-                                                    current_data, lower_colour_format)
+                    if formatting_option in {'colour_lower', 'colour_both'}:
+                        if lower_bound_majority_exists:  # if this is true, we don't want to include the smallest element
+                            if smallest < current_data <= bounds[column_name][1]:
+                                # overwriting the cell with the original data and new formatting
+                                worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
+                                                current_data, lower_colour_format)
+                        else:
+                            if smallest <= current_data <= bounds[column_name][1]:
+                                # overwriting the cell with the original data and new formatting
+                                worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
+                                                current_data, lower_colour_format)
 
     def autofit_sheets(self) -> None:
         """
