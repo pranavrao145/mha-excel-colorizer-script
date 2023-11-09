@@ -1,4 +1,5 @@
 import pandas as pd
+import xlsxwriter
 
 
 class ExcelModifier:
@@ -326,3 +327,20 @@ class ExcelModifier:
         for sheet_name in self.sheets_to_modify:
             worksheet = self.workbook_writer.sheets[sheet_name]
             worksheet.autofit()
+
+
+if __name__ == "__main__":
+    writer = pd.ExcelWriter('test.xlsx')
+
+    df = pd.DataFrame({
+        'test1': [3, 4, 5, 6, 7, 8, 9],
+        'test2': [3, 4, 5, 6, 7, 8, 9],
+        'test3': [3, 4, 5, 6, 7, 8, 9],
+        'test4': [3, 4, 5, 6, 7, 8, 9],
+        'test5': [3, 4, 5, 6, 7, 8, 9],
+    })
+
+    df.to_excel(writer, sheet_name='Sheet1',
+                startrow=3, startcol=1, index=False)
+
+    writer.close()
