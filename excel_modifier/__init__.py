@@ -68,7 +68,7 @@ class ExcelModifier:
 
         return (x, y)
 
-    def _parse_instructions(self, columns: list[str], instructions: str) -> dict[str, str]:
+    def _parse_instructions(self, instructions: str) -> dict[str, str]:
         """
         Given an instruction string of the format described in the docstring of
         self.colourize_columns, returned a dictionary of options to pass into
@@ -113,11 +113,32 @@ class ExcelModifier:
 
         return params_to_pass
 
-    def colourize_all() -> None:
+    def colourize_all(self, instructions: str) -> None:
         """
         Applies the instructions string to every column in every sheet in
-        self.set_sheets_to_modify.
+        self.set_sheets_to_modify. Note: this function assumes that the columns
+        are the first row in the dataframe for each sheet in self.sheets_to_modify.
         """
+        # parse the instruction string
+        parsed_instructions = self._parse_instructions(instructions)
+
+        # extract the parameters from the parsed instructions
+        formatting_option = parsed_instructions['formatting_option']
+        margin_options = (
+            parsed_instructions['margin_upper'], parsed_instructions['margin_lower'])
+        colour_options = (
+            parsed_instructions['colour_upper'], parsed_instructions['colour_lower'])
+        majority_percentage = parsed_instructions['majority_percentage']
+        write_offsets = (
+            parsed_instructions['row_offset'], parsed_instructions['column_offset'])
+
+        for sheet_name, sheet_data in self.sheets_to_modify.items():
+            columns = sheet_data.head()
+            # call the helper function
+            self._colourize_columns(sheet_name, sheet_data, columns,
+                                    formatting_option, margin_options,
+                                    colour_options, majority_percentage,
+                                    write_offsets)
 
     def colourize_columns(self, columns: list[str], instructions: str) -> None:
         """
@@ -180,7 +201,7 @@ class ExcelModifier:
         self._colourize_columns.
         """
         # parse the instruction string
-        parsed_instructions = self._parse_instructions(columns, instructions)
+        parsed_instructions = self._parse_instructions(instructions)
 
         # extract the parameters from the parsed instructions
         formatting_option = parsed_instructions['formatting_option']
@@ -362,7 +383,8 @@ if __name__ == "__main__":
     modifier = ExcelModifier(writer)
     modifier.set_sheets_to_modify({'Sheet1': df})
 
-    modifier.colourize_columns(['test1'], 'M 20 m 20 c r C g p 90 s b o 1 O 0')
+    # modifier.colourize_columns(['test1'], 'M 20 m 20 c r C g p 90 s b o 1 O 0')
+    modifier.colourize_all('M 20 m 20 c r C g p 90 s b o 1 O 0')
     modifier.autofit_sheets()
 
     modifier.close()
