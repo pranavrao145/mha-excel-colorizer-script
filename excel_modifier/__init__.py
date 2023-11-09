@@ -34,6 +34,26 @@ class ExcelModifier:
         """
         self.sheets_to_modify = sheet_names
 
+    def _get_indices_to_edit(self, sheet_data: pd.DataFrame, columns: list[str] | list[tuple],
+                             multi_index: bool) -> list[int]:
+        """
+        Given a dataframe sheet_data, the columns within the dataframe that should
+        be colourized, and whether or not the dataframe is multi-indexed, return
+        the indices of the columns that should be coloured.
+
+        Args:
+        - sheet_data: the DataFrame in which to find the columns
+        - columns: a list of columns to colourize. If multi_index is False,
+        then this is a list of strings. If multi_index is True, then this is
+        a list of tuples, each one representing a multi-indexed column name
+        (e.g. ('A', 'a')).
+        - multi_index: a boolean flag specifying if the dataframe is multi-indexed
+        or not
+        """
+        list_of_columns = sheet_data.columns.tolist()
+        return [i for i in range(len(list_of_columns)) if list_of_columns[i] in
+                columns]
+
     def _calculate_bounds(self, series: pd.Series, upper_bound: float,
                           lower_bound: float) -> tuple[float, float]:
         """
@@ -113,16 +133,22 @@ class ExcelModifier:
 
         return params_to_pass
 
-    def colourize_all(self, instructions: str, exlude_columns: list[str] = []) -> None:
+    def colourize_all(self, instructions: str, exclude_columns: list[str] = [], multi_index: bool = False) -> None:
         """
         Applies the instructions string to every column in every sheet in
-        self.set_sheets_to_modify. Note: this function assumes that the columns
-        are the first row in the dataframe for each sheet in self.sheets_to_modify.
+        self.set_sheets_to_modify.
 
         Args:
         - instructions: the instructions string to apply to each column in every sheet
-        - exlude_columns: a list of columns to EXCLUDE from colourization in
-          each sheet (e.g. ID columns). Default value is [] (i.e. ignore no columns)
+        - exclude_columns: a list of columns to EXCLUDE from colourization in
+          each sheet (e.g. ID columns). If multi_index is False, then this should be
+          a list of strings (because columns are single-indexed). Else, it should
+          be a lits of tuples, where each tuple is a multi-indexed column name.
+          Default value is [] (i.e. ignore no columns).
+        - multi_index: a flag representing whether or not the the sheets in
+          self.sheets_to_modify are multi-indexed or not. Note that, at one
+          time, the sheets in self.sheets_to_modify may only be exclusively
+          single-indexed or multi-indexed.
         """
         # parse the instruction string
         parsed_instructions = self._parse_instructions(instructions)
@@ -138,26 +164,32 @@ class ExcelModifier:
             parsed_instructions['row_offset'], parsed_instructions['column_offset'])
 
         for sheet_name, sheet_data in self.sheets_to_modify.items():
-            columns = list(filter(
-                lambda column_name: column_name not in exlude_columns, sheet_data.head()))
+            columns = [column_name for column_name in sheet_data.columns.tolist(
+            ) if column_name not in exclude_columns]
             # call the helper function
             self._colourize_columns(sheet_name, sheet_data, columns,
                                     formatting_option, margin_options,
                                     colour_options, majority_percentage,
-                                    write_offsets)
+                                    write_offsets, multi_index)
 
-    def colourize_columns(self, columns: list[str], instructions: str) -> None:
+    def colourize_columns(self, columns: list[str] | list[tuple], instructions: str, multi_index: bool = False) -> None:
         """
         Given a string of instructions (specification below), colorize columns
         of all sheets in self.sheets_to_modify based on the instructions.
 
         Args:
-        - columns: a list of strings which signify the columns to which the
-          instructions passed to this function should be applied (for every
-          sheet in self.sheets_to_modify).
-        - instructions: A string of instructions that specify how each column
+        - columns: Signifies the columns to which the instructions passed to this
+          function should be applied (for every sheet in self.sheets_to_modify).
+          If multi_index is False, then this should be a list of strings for
+          single-indexed dataframes. Else, it should be a list of tuples for
+          multi-indexed dataframes.
+        - instructions: a string of instructions that specify how each column
           should be modified. The specification for this instructions string is
           found below:
+        - multi_index: a flag representing whether or not the the sheets in
+          self.sheets_to_modify are multi-indexed or not. Note that, at one time,
+          the sheets in self.sheets_to_modify may only be exclusively
+          single-indexed or multi-indexed.
 
         Specification for Instructions String (note: order in which these options are specified
         does not matter but all of them must be present in an instructions string):
@@ -191,9 +223,10 @@ class ExcelModifier:
         the data to colourize does not start from column 0 (or column 1 in practice).
 
         EXAMPLE USAGE:
-        Here is an example call:
+        Here are two example calls:
 
-        colourize_columns(['mean', 'missing'], 'M 5.0 m 10.0 C g c r p 10.0 s b o 1 O 0')
+        1. colourize_columns(['mean', 'missing'], 'M 5.0 m 10.0 C g c r p 10.0
+                             s b o 1 O 0', multi_index=False)
 
         This will colourize the 'mean' and 'missing' columns in every sheet in
         self.set_sheets_to_modify, considering the upper margin as 5% and colouring
@@ -202,6 +235,12 @@ class ExcelModifier:
         starting colourization and overwriting from row 1 (to account for the title
         row) and column 0. Note that even if integers are used in place of the floats,
         this function still works.
+
+        2. colourize_columns([('A', 'mean'), ('B', 'missing')], 'M 5.0 m 10.0 C
+                             g c r p 10.0 s b o 1 O 0', multi_index=True)
+
+        This does the same thing as the last function call, except the columns are
+        tuples because they are multi-indexed.
 
         For any further clarification on options, view the docstring of
         self._colourize_columns.
@@ -224,14 +263,14 @@ class ExcelModifier:
             self._colourize_columns(sheet_name, sheet_data, columns,
                                     formatting_option, margin_options,
                                     colour_options, majority_percentage,
-                                    write_offsets)
+                                    write_offsets, multi_index)
 
     def _colourize_columns(self, sheet_name: str, sheet_data: pd.DataFrame,
-                           columns_to_format: list[str], formatting_option: str,
+                           columns_to_format: list[str] | list[tuple], formatting_option: str,
                            margin_options: tuple[float, float],
                            colour_options: tuple[str, str] = ('green', 'red'),
                            majority_percentage: float = 10.0,
-                           write_offsets: tuple[int, int] = (0, 0)) -> None:
+                           write_offsets: tuple[int, int] = (0, 0), multi_index: bool = False) -> None:
         """
         Applies all options to the columns in columns_to_format in the sheet
         with the name sheet_name.
@@ -239,7 +278,10 @@ class ExcelModifier:
         Args:
         - sheet_name: the name of the sheet where changes should be applied
         - sheet_data: the pandas dataframe associated with the sheet sheet_name
-        - columns_to_format: a list containing the names of the columns in self.sheets_to_modify to format
+        - columns_to_format: a list containing the names of the columns in
+          self.sheets_to_modify to colourize. If multi_index is True, this should
+          be a list of strings. Else, this should be a list of tuples, with each
+          tuple representing the multi-indexed column to be colourized.
         - formatting_option: a string from the set { 'colour_both', 'colour_upper', 'colour_lower' }
           which describes whether to colour only the upper margin, lower margin,
           or both
@@ -260,6 +302,8 @@ class ExcelModifier:
           to start overwriting. This is necessary for correct formatting if the
           data you want to colourize in initial sheet(s) do not start at row
           and column 0 and 0. Default value is (0, 0).
+        - multi_index: whether or not sheet_data is a multi-index Pandas dataframe.
+          Default is False.
 
         EXAMPLE USAGE:
 
@@ -272,16 +316,22 @@ class ExcelModifier:
         - colour_options = ('green', 'red')
         - majority_percentage = 10
         - write_offsets = (1, 1)
+        - multi_index = False
 
         Then the following would happen:
-        - For the columns in Sheet1 called 'mean' and 'missing', the upper 5
-          percent of the data would be coloured green.
+        - For the columns in the single-indexed Sheet1 called 'mean' and
+          'missing', the upper 5 percent of the data would be coloured green.
             - If the largest element in each column takes up at least
               majority_percentage% of the column, it will not be included in
               the colorization.
             - Colorized cells will be written starting from row 1 (which is the
               second row in practice) and column 1 (which is the second column
               in practice)
+
+        If the same inputs were given to the function but multi_index is True, then
+        the same thing would happen but columns_to_format would have to be
+        something like [('A', 'mean'), ('B', 'missing')] to account for
+        multi-indexing.
         """
         # extracting margins
         upper_bound, lower_bound = margin_options
@@ -298,22 +348,25 @@ class ExcelModifier:
 
         row_offset, column_offset = write_offsets
 
-        # PART 1: calculate bounds for the needed columns
+        column_indices_to_format = self._get_indices_to_edit(
+            sheet_data, columns_to_format, multi_index)
+        sheet_data_columns = sheet_data.columns.tolist()
 
         # using the helper function to calculate bounds for each column
-        bounds = {column_name: self._calculate_bounds(
-            sheet_data[column_name], upper_bound, lower_bound) for column_name in columns_to_format}
+        bounds = {column_index: self._calculate_bounds(
+            sheet_data[sheet_data_columns[column_index]], upper_bound,
+            lower_bound) for column_index in column_indices_to_format}
 
-        # PART 2: applying conditional formatting based on the bounds and column
+        # applying conditional formatting based on the bounds and column
         # formatting
-
         worksheet = self.workbook_writer.sheets[sheet_name]
         num_rows = sheet_data.shape[0]
 
-        for column_name in columns_to_format:
+        for column_pos in column_indices_to_format:
             # which column are we in
-            column_pos = sheet_data.columns.get_loc(column_name)
-            current_column = sheet_data[column_name]
+            # column_pos = sheet_data.columns.get_loc(column_index)
+            current_column = sheet_data[sheet_data_columns[
+                column_pos]]
 
             # if the biggest and lowest data points take up this much percentage
             # of the upper and lower bounds, respectively, they will not be
@@ -341,24 +394,24 @@ class ExcelModifier:
                     # if the upper bound must be coloured
                     if formatting_option in {'colour_upper', 'colour_both'}:
                         if upper_bound_majority_exists:  # if this is true, we don't want to include the largest element
-                            if largest > current_data >= bounds[column_name][0]:
+                            if largest > current_data >= bounds[column_pos][0]:
                                 # overwriting the cell with the original data and new formatting
                                 worksheet.write(row_offset + row_pos, column_offset + column_pos,
                                                 current_data, upper_colour_format)
                         else:
-                            if largest >= current_data >= bounds[column_name][0]:
+                            if largest >= current_data >= bounds[column_pos][0]:
                                 # overwriting the cell with the original data and new formatting
                                 worksheet.write(row_offset + row_pos, column_offset + column_pos,
                                                 current_data, upper_colour_format)
 
                     if formatting_option in {'colour_lower', 'colour_both'}:
                         if lower_bound_majority_exists:  # if this is true, we don't want to include the smallest element
-                            if smallest < current_data <= bounds[column_name][1]:
+                            if smallest < current_data <= bounds[column_pos][1]:
                                 # overwriting the cell with the original data and new formatting
                                 worksheet.write(row_offset + row_pos, column_offset + column_pos,
                                                 current_data, lower_colour_format)
                         else:
-                            if smallest <= current_data <= bounds[column_name][1]:
+                            if smallest <= current_data <= bounds[column_pos][1]:
                                 # overwriting the cell with the original data and new formatting
                                 worksheet.write(row_offset + row_pos, column_offset + column_pos,
                                                 current_data, lower_colour_format)
@@ -382,20 +435,22 @@ if __name__ == "__main__":
         ('B', 'b'): [1, 2, 3, 4],
     }
 
-    index = pd.Index([1, 2, 3, 4], name='index')
     columns = pd.MultiIndex.from_tuples(
         [('A', 'a'), ('A', 'b'), ('B', 'a'), ('B', 'b')])
     df = pd.DataFrame(data, columns=columns)
-    print(list(columns.get_level_values(1)))
-    print(df.loc[:, ('A', 'a')].tolist())
+    # print(df.columns.tolist())
+    # print(list(columns.get_level_values(1)))
+    # print(df.loc[:, ('A', 'a')].tolist())
 
     df.to_excel(writer, sheet_name='Sheet1', engine='xlsxwriter')
 
-    # modifier = ExcelModifier(writer)
-    # modifier.set_sheets_to_modify({'Sheet1': df})
+    modifier = ExcelModifier(writer)
+    modifier.set_sheets_to_modify({'Sheet1': df})
 
-    # modifier.colourize_columns(['test1'], 'M 20 m 20 c r C g p 90 s b o 1 O 0')
-    # modifier.colourize_all('M 20 m 20 c r C g p 90 s b o 1 O 0', ['test3'])
+    # modifier.colourize_columns(
+    #     [('A', 'a')], 'M 50 m 50 c r C g p 90 s b o 3 O 1', multi_index=True)
+    modifier.colourize_all(
+        'M 20 m 20 c r C g p 90 s b o 3 O 1', [('A', 'a')], multi_index=True)
     # modifier.autofit_sheets()
 
-    writer.close()
+    modifier.close()
