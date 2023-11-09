@@ -334,8 +334,8 @@ class ExcelModifier:
                 current_column == smallest).mean() >= ignore_bound_percentage
 
             # for each row in the column
-            for row_pos in range(0, num_rows + 1):
-                current_data = sheet_data.iat[row_pos - 1, column_pos]
+            for row_pos in range(0, num_rows):
+                current_data = sheet_data.iat[row_pos, column_pos]
 
                 if current_data != 'nan':
                     # if the upper bound must be coloured
@@ -343,24 +343,24 @@ class ExcelModifier:
                         if upper_bound_majority_exists:  # if this is true, we don't want to include the largest element
                             if largest > current_data >= bounds[column_name][0]:
                                 # overwriting the cell with the original data and new formatting
-                                worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
+                                worksheet.write(row_offset + row_pos, column_offset + column_pos,
                                                 current_data, upper_colour_format)
                         else:
                             if largest >= current_data >= bounds[column_name][0]:
                                 # overwriting the cell with the original data and new formatting
-                                worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
+                                worksheet.write(row_offset + row_pos, column_offset + column_pos,
                                                 current_data, upper_colour_format)
 
                     if formatting_option in {'colour_lower', 'colour_both'}:
                         if lower_bound_majority_exists:  # if this is true, we don't want to include the smallest element
                             if smallest < current_data <= bounds[column_name][1]:
                                 # overwriting the cell with the original data and new formatting
-                                worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
+                                worksheet.write(row_offset + row_pos, column_offset + column_pos,
                                                 current_data, lower_colour_format)
                         else:
                             if smallest <= current_data <= bounds[column_name][1]:
                                 # overwriting the cell with the original data and new formatting
-                                worksheet.write(row_offset + row_pos - 1, column_offset + column_pos,
+                                worksheet.write(row_offset + row_pos, column_offset + column_pos,
                                                 current_data, lower_colour_format)
 
     def autofit_sheets(self) -> None:
