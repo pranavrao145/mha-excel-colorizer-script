@@ -113,11 +113,16 @@ class ExcelModifier:
 
         return params_to_pass
 
-    def colourize_all(self, instructions: str) -> None:
+    def colourize_all(self, instructions: str, exlude_columns: list[str] = []) -> None:
         """
         Applies the instructions string to every column in every sheet in
         self.set_sheets_to_modify. Note: this function assumes that the columns
         are the first row in the dataframe for each sheet in self.sheets_to_modify.
+
+        Args:
+        - instructions: the instructions string to apply to each column in every sheet
+        - exlude_columns: a list of columns to EXCLUDE from colourization in
+          each sheet (e.g. ID columns). Default value is [] (i.e. ignore no columns)
         """
         # parse the instruction string
         parsed_instructions = self._parse_instructions(instructions)
@@ -133,7 +138,8 @@ class ExcelModifier:
             parsed_instructions['row_offset'], parsed_instructions['column_offset'])
 
         for sheet_name, sheet_data in self.sheets_to_modify.items():
-            columns = sheet_data.head()
+            columns = list(filter(
+                lambda column_name: column_name not in exlude_columns, sheet_data.head()))
             # call the helper function
             self._colourize_columns(sheet_name, sheet_data, columns,
                                     formatting_option, margin_options,
@@ -328,7 +334,7 @@ class ExcelModifier:
                 current_column == smallest).mean() >= ignore_bound_percentage
 
             # for each row in the column
-            for row_pos in range(row_offset, num_rows + 1):
+            for row_pos in range(0, num_rows + 1):
                 current_data = sheet_data.iat[row_pos - 1, column_pos]
 
                 if current_data != 'nan':
@@ -369,22 +375,27 @@ class ExcelModifier:
 if __name__ == "__main__":
     writer = pd.ExcelWriter('test.xlsx')
 
-    df = pd.DataFrame({
-        'test1': [3, 4, 5, 6, 7, 8, 9],
-        'test2': [3, 4, 5, 6, 7, 8, 9],
-        'test3': [3, 4, 5, 6, 7, 8, 9],
-        'test4': [3, 4, 5, 6, 7, 8, 9],
-        'test5': [3, 4, 5, 6, 7, 8, 9],
-    })
+    data = {
+        ('A', 'a'): [1, 2, 3, 4],
+        ('A', 'b'): [1, 2, 3, 4],
+        ('B', 'a'): [1, 2, 3, 4],
+        ('B', 'b'): [1, 2, 3, 4],
+    }
 
-    df.to_excel(writer, sheet_name='Sheet1',
-                startrow=0, startcol=0, index=False)
+    index = pd.Index([1, 2, 3, 4], name='index')
+    columns = pd.MultiIndex.from_tuples(
+        [('A', 'a'), ('A', 'b'), ('B', 'a'), ('B', 'b')])
+    df = pd.DataFrame(data, columns=columns)
+    print(list(columns.get_level_values(1)))
+    print(df.loc[:, ('A', 'a')].tolist())
 
-    modifier = ExcelModifier(writer)
-    modifier.set_sheets_to_modify({'Sheet1': df})
+    df.to_excel(writer, sheet_name='Sheet1', engine='xlsxwriter')
+
+    # modifier = ExcelModifier(writer)
+    # modifier.set_sheets_to_modify({'Sheet1': df})
 
     # modifier.colourize_columns(['test1'], 'M 20 m 20 c r C g p 90 s b o 1 O 0')
-    modifier.colourize_all('M 20 m 20 c r C g p 90 s b o 1 O 0')
-    modifier.autofit_sheets()
+    # modifier.colourize_all('M 20 m 20 c r C g p 90 s b o 1 O 0', ['test3'])
+    # modifier.autofit_sheets()
 
-    modifier.close()
+    writer.close()
